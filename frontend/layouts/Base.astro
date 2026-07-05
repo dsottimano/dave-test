@@ -1,0 +1,107 @@
+---
+import "../styles/site.css";
+import Seo from "../components/Seo.astro";
+import appearance from "/data/appearance.json";
+import type { PageSeo } from "../lib/seo";
+import type { ArticleInput } from "../lib/jsonld";
+import type { Alternate } from "../lib/alternates";
+import { DEFAULT_LOCALE, LOCALES, localeUrl, type Locale } from "../lib/i18n";
+import { getMenu, getSeoDefaults, resolveDevices } from "../lib/site";
+import { isLanding } from "../lib/templates";
+import { resolveBrand } from "../lib/appearance";
+import { renderPart } from "../lib/parts";
+
+interface Props {
+  seo?: PageSeo;
+  article?: ArticleInput | null;
+  // Active locale — drives <html lang>, the per-locale menu/SEO, and the language
+  // switcher. Which locales exist and which is default come from data/site.json.
+  locale?: Locale;
+  // This page's cross-locale URLs — feeds the hreflang tags (via Seo) and the
+  // header language switcher (one link per locale, active one marked).
+  alternates?: Alternate[];
+  // Resolved template name (frontend/lib/templates.ts). "landing" strips the
+  // header nav + ES·EN switcher, keeping just the brand as the way home —
+  // structurally omitted (not display:none) so the page stays clean + cacheable.
+  template?: string;
+}
+
+const { seo = {}, article = null, locale = DEFAULT_LOCALE, alternates = [], template } = Astro.props;
+
+const landing = isLanding(template ?? "default");
+
+// Brand (Settings → Brand): inline custom-property overrides that beat the base
+// design tokens (site.css :root), a motion flag, and any custom-font stylesheet.
+// There is no theme switch — the base look lives in site.css; Brand owns it.
+const brand = resolveBrand(appearance);
+const siteName = getSeoDefaults(locale).siteName || "Site";
+const year = new Date().getFullYear();
+
+// The brand links home in the active locale; the default locale sits at the root.
+const homeUrl = localeUrl(locale, "");
+
+// Parts data → the header/footer HTML templates (templates/parts/*.html). Menu
+// from the editable per-locale Settings → Menu (desktop list; responsive CSS
+// handles layout). The language switcher is data too: one item per enabled locale,
+// linked to this page's alternate (or that locale's home), the active one marked.
+const menu = getMenu(locale);
+const partData = {
+  homeUrl,
+  siteName,
+  year,
+  headerClass: landing ? "site-header landing" : "site-header",
+  footerClass: landing ? "site-footer landing" : "site-footer",
+  menuHeader: resolveDevices(menu.header).desktop,
+  menuFooter: resolveDevices(menu.footer).desktop,
+  showSwitcher: LOCALES.length > 1,
+  locales: LOCALES.map((l, i) => ({
+    code: l.toUpperCase(),
+    url: alternates.find((a) => a.locale === l)?.url ?? localeUrl(l, ""),
+    active: l === locale,
+    inactive: l !== locale, // engine has no {{else}} — pair active/inactive #ifs
+    sep: i > 0, // render a "·" separator before every locale after the first
+  })),
+};
+const headerHtml = renderPart("header", partData);
+const footerHtml = renderPart("footer", partData);
+---
+
+<!doctype html>
+<html lang={locale} data-motion={brand.motion} style={brand.styleVars || undefined}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    {/* Base design fonts: Jost (the wordmark's geometric sans — display + body)
+        and JetBrains Mono (nav/footer/pipeline machine-truth). Always loaded so
+        an un-branded site still looks right; Brand's own fonts load additively. */}
+    <link
+      href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    {brand.fontHref && <link href={brand.fontHref} rel="stylesheet" />}
+    {/* Wordmark favicons + PWA manifest (public/favicon, from lanza-brand). */}
+    <link rel="icon" href="/favicon/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" href="/favicon/icon-512.png" sizes="512x512" />
+    <link rel="apple-touch-icon" href="/favicon/apple-touch-icon.png" />
+    <link rel="manifest" href="/favicon/site.webmanifest" />
+    <meta name="theme-color" content="#f3f1ea" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#17140f" media="(prefers-color-scheme: dark)" />
+    <Seo seo={seo} article={article} locale={locale} alternates={alternates} />
+  </head>
+  <body>
+    {/* Site parts — header/footer rendered from the editable HTML templates in
+        templates/parts/*.html (see lib/parts.ts), injected around the page slot.
+        The markup is human-editable HTML; the menu + language switcher are
+        {{#each}} loops over the data computed above. */}
+    <Fragment set:html={headerHtml} />
+
+    <slot />
+
+    <Fragment set:html={footerHtml} />
+
+    {/* Agent surface: window.lanza read API (see public/lanza.js). Static, deferred, cached site-wide. */}
+    <script src="/lanza.js" defer is:inline></script>
+  </body>
+</html>

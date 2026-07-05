@@ -1,0 +1,14 @@
+---
+import HomeRoute from "../../components/HomeRoute.astro";
+import { otherLocales } from "../../lib/paths";
+
+// Localized homepage (/es/, …). One per non-default locale; renders that locale's
+// CMS home via the shared HomeRoute (same resolution as the root route).
+export async function getStaticPaths() {
+  return otherLocales().map((locale) => ({ params: { locale }, props: { locale } }));
+}
+
+const { locale } = Astro.props;
+---
+
+<HomeRoute locale={locale} />
